@@ -2,16 +2,16 @@
 #include <d3dcompiler.h>
 #include <random>
 #include <time.h>
+#include <string>
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx11.h"
-#include <string> // For dynamic color labels
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
 Renderer::Renderer(HWND hwnd) : m_hwnd(hwnd), m_ruleBuffer(nullptr), m_ruleSRV(nullptr)
 {
-    // 1. Create Device and Swap Chain
     DXGI_SWAP_CHAIN_DESC scd = {};
     scd.BufferCount = 1;
     scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -28,7 +28,6 @@ Renderer::Renderer(HWND hwnd) : m_hwnd(hwnd), m_ruleBuffer(nullptr), m_ruleSRV(n
     m_device->CreateRenderTargetView(backBuffer, nullptr, &m_rtv);
     backBuffer->Release();
 
-    // 2. Compile Shaders
     ID3DBlob *csBlob, *vsBlob, *psBlob;
     D3DCompileFromFile(L"shaders/Compute.hlsl", nullptr, nullptr, "main", "cs_5_0", 0, 0, &csBlob, nullptr);
     m_device->CreateComputeShader(csBlob->GetBufferPointer(), csBlob->GetBufferSize(), nullptr, &m_computeShader);
@@ -39,10 +38,6 @@ Renderer::Renderer(HWND hwnd) : m_hwnd(hwnd), m_ruleBuffer(nullptr), m_ruleSRV(n
     D3DCompileFromFile(L"shaders/Pixel.hlsl", nullptr, nullptr, "main", "ps_5_0", 0, 0, &psBlob, nullptr);
     m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_pixelShader);
 
-    csBlob->Release();
-    vsBlob->Release();
-    psBlob->Release();
-    // Compile Matrix Shaders
     ID3DBlob *matVSBlob, *matPSBlob;
     D3DCompileFromFile(L"shaders/Matrix.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &matVSBlob, nullptr);
     m_device->CreateVertexShader(matVSBlob->GetBufferPointer(), matVSBlob->GetBufferSize(), nullptr, &m_matrixVS);
@@ -50,45 +45,49 @@ Renderer::Renderer(HWND hwnd) : m_hwnd(hwnd), m_ruleBuffer(nullptr), m_ruleSRV(n
     D3DCompileFromFile(L"shaders/Matrix.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, &matPSBlob, nullptr);
     m_device->CreatePixelShader(matPSBlob->GetBufferPointer(), matPSBlob->GetBufferSize(), nullptr, &m_matrixPS);
 
+    csBlob->Release();
+    vsBlob->Release();
+    psBlob->Release();
     matVSBlob->Release();
     matPSBlob->Release();
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     (void)io;
-    ImGui::StyleColorsDark(); // Use the built-in dark theme
+    ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(m_hwnd);
     ImGui_ImplDX11_Init(m_device, m_context);
 }
 
 Renderer::~Renderer()
 {
-    // --- NEW: Clean up ImGui ---
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-    // Release all DirectX COM objects to prevent memory leaks
+
+    if (m_matrixVS)
+        m_matrixVS->Release();
+    if (m_matrixPS)
+        m_matrixPS->Release();
     if (m_constantBuffer)
         m_constantBuffer->Release();
     if (m_ruleSRV)
         m_ruleSRV->Release();
     if (m_ruleBuffer)
         m_ruleBuffer->Release();
-
     if (m_particleSRV)
         m_particleSRV->Release();
     if (m_particleUAV)
         m_particleUAV->Release();
     if (m_particleBuffer)
         m_particleBuffer->Release();
-
     if (m_pixelShader)
         m_pixelShader->Release();
     if (m_vertexShader)
         m_vertexShader->Release();
     if (m_computeShader)
         m_computeShader->Release();
-
     if (m_rtv)
         m_rtv->Release();
     if (m_swapChain)
@@ -97,36 +96,164 @@ Renderer::~Renderer()
         m_context->Release();
     if (m_device)
         m_device->Release();
-    if (m_matrixVS)
-        m_matrixVS->Release();
-    if (m_matrixPS)
-        m_matrixPS->Release();
 }
-// ADD THIS NEW FUNCTION anywhere in Renderer.cpp
+
 void Renderer::Resize(UINT width, UINT height)
 {
     if (!m_swapChain || width == 0 || height == 0)
         return;
-
     m_width = width;
     m_height = height;
-
-    // 1. Release the old render target
     if (m_rtv)
     {
         m_rtv->Release();
         m_rtv = nullptr;
     }
-
-    // 2. Resize the internal GPU buffers to match the new window size
     m_swapChain->ResizeBuffers(1, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
-
-    // 3. Recreate the render target
     ID3D11Texture2D *backBuffer = nullptr;
     m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&backBuffer);
     m_device->CreateRenderTargetView(backBuffer, nullptr, &m_rtv);
     backBuffer->Release();
 }
+
+void Renderer::InitParticles(uint32_t count)
+{
+    m_numParticles = count;
+    std::vector<Particle> particles(count);
+    for (auto &p : particles)
+    {
+        // Multiply by m_worldSize so they scatter fully!
+        p.pos = {
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize,
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize};
+        p.vel = {0.0f, 0.0f};
+        p.type = rand() % 16;
+    }
+
+    D3D11_BUFFER_DESC bufDesc = {};
+    bufDesc.Usage = D3D11_USAGE_DEFAULT;
+    bufDesc.ByteWidth = sizeof(Particle) * count;
+    bufDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+    bufDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    bufDesc.StructureByteStride = sizeof(Particle);
+
+    D3D11_SUBRESOURCE_DATA initData = {particles.data(), 0, 0};
+    m_device->CreateBuffer(&bufDesc, &initData, &m_particleBuffer);
+    m_device->CreateUnorderedAccessView(m_particleBuffer, nullptr, &m_particleUAV);
+    m_device->CreateShaderResourceView(m_particleBuffer, nullptr, &m_particleSRV);
+
+    m_constants = {count, 0, 0.2f, 0.05f, 0.016f, 0.5f, {0, 0}, 0.0f, 0.0f, {0, 0}, 1.0f, m_worldSize, {0.0f, 0.0f}};
+    bufDesc.ByteWidth = sizeof(Constants);
+    bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    bufDesc.MiscFlags = 0;
+    bufDesc.StructureByteStride = 0;
+    m_device->CreateBuffer(&bufDesc, nullptr, &m_constantBuffer);
+
+    RandomizeRules(6);
+}
+
+void Renderer::RebuildParticles(uint32_t newCount)
+{
+    m_numParticles = newCount;
+
+    if (m_particleSRV)
+    {
+        m_particleSRV->Release();
+        m_particleSRV = nullptr;
+    }
+    if (m_particleUAV)
+    {
+        m_particleUAV->Release();
+        m_particleUAV = nullptr;
+    }
+    if (m_particleBuffer)
+    {
+        m_particleBuffer->Release();
+        m_particleBuffer = nullptr;
+    }
+
+    std::vector<Particle> particles(newCount);
+    for (auto &p : particles)
+    {
+        p.pos = {
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize,
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize};
+        p.vel = {0.0f, 0.0f};
+        p.type = rand() % m_constants.numTypes;
+    }
+
+    D3D11_BUFFER_DESC bufDesc = {};
+    bufDesc.Usage = D3D11_USAGE_DEFAULT;
+    bufDesc.ByteWidth = sizeof(Particle) * newCount;
+    bufDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+    bufDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    bufDesc.StructureByteStride = sizeof(Particle);
+
+    D3D11_SUBRESOURCE_DATA initData = {particles.data(), 0, 0};
+    m_device->CreateBuffer(&bufDesc, &initData, &m_particleBuffer);
+    m_device->CreateUnorderedAccessView(m_particleBuffer, nullptr, &m_particleUAV);
+    m_device->CreateShaderResourceView(m_particleBuffer, nullptr, &m_particleSRV);
+
+    m_constants.numParticles = newCount;
+}
+
+void Renderer::RandomizeRules(uint32_t newNumTypes)
+{
+    if (m_ruleSRV)
+    {
+        m_ruleSRV->Release();
+        m_ruleSRV = nullptr;
+    }
+    if (m_ruleBuffer)
+    {
+        m_ruleBuffer->Release();
+        m_ruleBuffer = nullptr;
+    }
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+    std::vector<float> rules(newNumTypes * newNumTypes);
+    for (auto &r : rules)
+    {
+        r = dist(gen);
+    }
+
+    D3D11_BUFFER_DESC bufDesc = {};
+    bufDesc.Usage = D3D11_USAGE_DEFAULT;
+    bufDesc.ByteWidth = sizeof(float) * rules.size();
+    bufDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    bufDesc.StructureByteStride = sizeof(float);
+    bufDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+
+    D3D11_SUBRESOURCE_DATA initData = {rules.data(), 0, 0};
+    m_device->CreateBuffer(&bufDesc, &initData, &m_ruleBuffer);
+    m_device->CreateShaderResourceView(m_ruleBuffer, nullptr, &m_ruleSRV);
+
+    for (uint32_t i = 0; i < newNumTypes; ++i)
+    {
+        m_constants.typeColors[i] = {dist(gen) * 0.5f + 0.5f, dist(gen) * 0.5f + 0.5f, dist(gen) * 0.5f + 0.5f, 1.0f};
+    }
+
+    m_constants.numTypes = newNumTypes;
+    m_context->UpdateSubresource(m_constantBuffer, 0, nullptr, &m_constants, 0, 0);
+
+    // Re-scatter the particles across the dynamic world size!
+    std::vector<Particle> particles(m_numParticles);
+    for (auto &p : particles)
+    {
+        p.pos = {
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize,
+            ((rand() % 20000 - 10000) / 10000.0f) * m_worldSize};
+        p.vel = {0.0f, 0.0f};
+        p.type = rand() % newNumTypes;
+    }
+
+    // This is the line that likely got deleted accidentally!
+    m_context->UpdateSubresource(m_particleBuffer, 0, nullptr, particles.data(), 0, 0);
+}
+
 void Renderer::UpdateAndRender()
 {
     ImGui_ImplDX11_NewFrame();
@@ -139,45 +266,61 @@ void Renderer::UpdateAndRender()
     if (simWidth < 100.0f)
         simWidth = 100.0f;
 
-    // ==========================================
-    // --- MOUSE LOGIC & VISUAL RING ---
-    // ==========================================
-    m_constants.mouseForce = 0.0f; // Default to off
-
-    // Only apply mouse physics if the cursor is hovering over the simulation area (not the sidebar)
+    // --- CAMERA LOGIC (Pan & Zoom) ---
     if (io.MousePos.x < simWidth && io.MousePos.y < m_height && !io.WantCaptureMouse)
     {
+        if (io.MouseWheel != 0.0f)
+        {
+            float mouseNDC_X = (io.MousePos.x / simWidth) * 2.0f - 1.0f;
+            float mouseNDC_Y = 1.0f - (io.MousePos.y / m_height) * 2.0f;
 
-        // Map pixel coordinates to DirectX Normalized Device Coordinates (-1 to 1)
-        m_constants.mousePos.x = (io.MousePos.x / simWidth) * 2.0f - 1.0f;
-        m_constants.mousePos.y = 1.0f - (io.MousePos.y / m_height) * 2.0f;
-        m_constants.mouseRadius = m_mouseRadius;
+            float prevZoom = m_zoom;
+            m_zoom += m_zoom * (io.MouseWheel * 0.15f);
+            if (m_zoom < 0.1f)
+                m_zoom = 0.1f;
+            if (m_zoom > 20.0f)
+                m_zoom = 20.0f;
+
+            m_pan.x = mouseNDC_X - (mouseNDC_X - m_pan.x) * (m_zoom / prevZoom);
+            m_pan.y = mouseNDC_Y - (mouseNDC_Y - m_pan.y) * (m_zoom / prevZoom);
+        }
+
+        if (ImGui::IsMouseDragging(2))
+        {
+            m_pan.x += io.MouseDelta.x / (simWidth / 2.0f);
+            m_pan.y -= io.MouseDelta.y / ((float)m_height / 2.0f);
+        }
+    }
+    m_constants.pan = m_pan;
+    m_constants.zoom = m_zoom;
+
+    // --- MOUSE PHYSICS LOGIC ---
+    m_constants.mouseForce = 0.0f;
+    if (io.MousePos.x < simWidth && io.MousePos.y < m_height && !io.WantCaptureMouse)
+    {
+        float mouseNDC_X = (io.MousePos.x / simWidth) * 2.0f - 1.0f;
+        float mouseNDC_Y = 1.0f - (io.MousePos.y / m_height) * 2.0f;
+
+        m_constants.mousePos.x = (mouseNDC_X - m_pan.x) / m_zoom;
+        m_constants.mousePos.y = (mouseNDC_Y - m_pan.y) / m_zoom;
+        m_constants.mouseRadius = m_mouseRadius / m_zoom;
 
         if (ImGui::IsMouseDown(0))
-            m_constants.mouseForce = m_mouseStrength; // Left Click = Attract
+            m_constants.mouseForce = m_mouseStrength;
         if (ImGui::IsMouseDown(1))
-            m_constants.mouseForce = -m_mouseStrength; // Right Click = Repel
+            m_constants.mouseForce = -m_mouseStrength;
 
-        // Draw the visual feedback ring if a button is held
         if (m_constants.mouseForce != 0.0f)
         {
-            // Determine ring color (Green for attract, Red for repulse)
             ImU32 ringColor = (m_constants.mouseForce > 0.0f) ? IM_COL32(50, 255, 50, 200) : IM_COL32(255, 50, 50, 200);
-
-            // Convert the radius back to screen pixels for ImGui to draw
             float pixelRadius = m_mouseRadius * (simWidth / 2.0f);
-
-            // Draw a circle directly over the DirectX render!
             ImGui::GetForegroundDrawList()->AddCircle(io.MousePos, pixelRadius, ringColor, 64, 3.0f);
         }
     }
 
-    // Upload live changes (including mouse data) to the GPU immediately
     m_context->UpdateSubresource(m_constantBuffer, 0, nullptr, &m_constants, 0, 0);
 
-    // ==========================================
-    // 1. COMPUTE PASS (Physics)
-    // ==========================================
+    // COMPUTE PASS
     m_context->CSSetShader(m_computeShader, nullptr, 0);
     m_context->CSSetConstantBuffers(0, 1, &m_constantBuffer);
     m_context->CSSetShaderResources(0, 1, &m_ruleSRV);
@@ -187,15 +330,12 @@ void Renderer::UpdateAndRender()
     ID3D11UnorderedAccessView *nullUAV = nullptr;
     m_context->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
 
-    // ==========================================
-    // 2. RENDER PASS (Graphics)
-    // ==========================================
+    // RENDER PASS
     float clearColor[4] = {0.05f, 0.05f, 0.05f, 1.0f};
     m_context->ClearRenderTargetView(m_rtv, clearColor);
     m_context->OMSetRenderTargets(1, &m_rtv, nullptr);
     m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
-    // -- Viewport 1: The Simulation --
     D3D11_VIEWPORT vpSim = {0.0f, 0.0f, simWidth, (float)m_height, 0.0f, 1.0f};
     m_context->RSSetViewports(1, &vpSim);
     m_context->VSSetShader(m_vertexShader, nullptr, 0);
@@ -204,7 +344,6 @@ void Renderer::UpdateAndRender()
     m_context->VSSetConstantBuffers(0, 1, &m_constantBuffer);
     m_context->DrawInstanced(4, m_numParticles, 0, 0);
 
-    // -- Viewport 2: The Sidebar --
     D3D11_VIEWPORT vpSidebar = {simWidth, 0.0f, sidebarWidth, (float)m_height, 0.0f, 1.0f};
     m_context->RSSetViewports(1, &vpSidebar);
     m_context->VSSetShader(m_matrixVS, nullptr, 0);
@@ -216,9 +355,7 @@ void Renderer::UpdateAndRender()
     ID3D11ShaderResourceView *nullSRV = nullptr;
     m_context->VSSetShaderResources(0, 1, &nullSRV);
 
-    // ==========================================
-    // 3. BUILD AND RENDER UI
-    // ==========================================
+    // UI RENDERING
     ImGui::SetNextWindowPos(ImVec2(simWidth, 0));
     ImGui::SetNextWindowSize(ImVec2(sidebarWidth, (float)m_height));
     ImGui::Begin("Control Panel", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
@@ -227,9 +364,14 @@ void Renderer::UpdateAndRender()
     ImGui::Text("Particles: %d", m_numParticles);
     ImGui::Text("Active Types: %d", m_constants.numTypes);
     ImGui::Text("FPS: %.1f", io.Framerate);
+    if (ImGui::Button("Reset Camera", ImVec2(-1, 25)))
+    {
+        m_pan = {0.0f, 0.0f};
+        m_zoom = 1.0f;
+    }
 
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Mouse Tools (LMB/RMB)");
+    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Mouse Tools");
     ImGui::SliderFloat("Tool Power", &m_mouseStrength, 1.0f, 20.0f);
     ImGui::SliderFloat("Tool Radius", &m_mouseRadius, 0.1f, 1.0f);
 
@@ -242,9 +384,19 @@ void Renderer::UpdateAndRender()
 
     ImGui::Separator();
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Universe Controls");
-    ImGui::SliderInt("Target Types", &m_targetTypes, 2, 16);
 
-    if (ImGui::Button("Mutate & Apply Target Types", ImVec2(-1, 35)))
+    ImGui::SliderInt("Target Particles", &m_targetParticles, 1000, 50000);
+    if (ImGui::Button("Apply Particle Count", ImVec2(-1, 30)))
+    {
+        RebuildParticles(m_targetParticles);
+    }
+
+    // NEW MAP SLIDER
+    ImGui::SliderFloat("Map Size", &m_worldSize, 1.0f, 20.0f);
+    m_constants.worldSize = m_worldSize;
+
+    ImGui::SliderInt("Target Types", &m_targetTypes, 2, 16);
+    if (ImGui::Button("Mutate Types & Rules", ImVec2(-1, 30)))
     {
         RandomizeRules(m_targetTypes);
     }
@@ -263,110 +415,4 @@ void Renderer::UpdateAndRender()
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     m_swapChain->Present(1, 0);
-}
-void Renderer::InitParticles(uint32_t count)
-{
-    m_numParticles = count;
-
-    // Generate random base particles
-    std::vector<Particle> particles(count);
-    for (auto &p : particles)
-    {
-        p.pos = {(rand() % 200 - 100) / 100.0f, (rand() % 200 - 100) / 100.0f};
-        p.vel = {0.0f, 0.0f};
-        p.type = rand() % 16; // Randomize base particles across a max of 16 types
-    }
-
-    // Create Particle Buffer (Bind flags: UAV for compute, SRV for vertex)
-    D3D11_BUFFER_DESC bufDesc = {};
-    bufDesc.Usage = D3D11_USAGE_DEFAULT;
-    bufDesc.ByteWidth = sizeof(Particle) * count;
-    bufDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
-    bufDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-    bufDesc.StructureByteStride = sizeof(Particle);
-
-    D3D11_SUBRESOURCE_DATA initData = {particles.data(), 0, 0};
-    m_device->CreateBuffer(&bufDesc, &initData, &m_particleBuffer);
-
-    m_device->CreateUnorderedAccessView(m_particleBuffer, nullptr, &m_particleUAV);
-    m_device->CreateShaderResourceView(m_particleBuffer, nullptr, &m_particleSRV);
-
-    // Initialize Constants
-    m_constants = {count, 0, 0.2f, 0.05f, 0.016f, 0.5f, {0, 0}};
-    bufDesc.ByteWidth = sizeof(Constants);
-    bufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    bufDesc.MiscFlags = 0;
-    bufDesc.StructureByteStride = 0;
-    m_device->CreateBuffer(&bufDesc, nullptr, &m_constantBuffer);
-
-    // Trigger the first set of rules (starts with 6 types)
-    RandomizeRules(6);
-}
-void Renderer::RandomizeRules(uint32_t newNumTypes)
-{
-    // 1. Release the old buffer if it exists
-    if (m_ruleSRV)
-    {
-        m_ruleSRV->Release();
-        m_ruleSRV = nullptr;
-    }
-    if (m_ruleBuffer)
-    {
-        m_ruleBuffer->Release();
-        m_ruleBuffer = nullptr;
-    }
-
-    // 2. True Randomness Setup
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-
-    // 3. Generate New Rules
-    std::vector<float> rules(newNumTypes * newNumTypes);
-    for (auto &r : rules)
-    {
-        r = dist(gen);
-    }
-
-    // 4. Create the new Rule Buffer
-    D3D11_BUFFER_DESC bufDesc = {};
-    bufDesc.Usage = D3D11_USAGE_DEFAULT;
-    bufDesc.ByteWidth = sizeof(float) * rules.size();
-    bufDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    bufDesc.StructureByteStride = sizeof(float);
-    bufDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-
-    D3D11_SUBRESOURCE_DATA initData = {rules.data(), 0, 0};
-    m_device->CreateBuffer(&bufDesc, &initData, &m_ruleBuffer);
-    m_device->CreateShaderResourceView(m_ruleBuffer, nullptr, &m_ruleSRV);
-
-    // 5. Randomize custom colors for the new types
-    for (uint32_t i = 0; i < newNumTypes; ++i)
-    {
-        m_constants.typeColors[i] = {
-            dist(gen) * 0.5f + 0.5f, // Keep colors bright (0.5 to 1.0)
-            dist(gen) * 0.5f + 0.5f,
-            dist(gen) * 0.5f + 0.5f,
-            1.0f};
-    }
-
-    // 6. Update the GPU Constants with the new type count
-    m_constants.numTypes = newNumTypes;
-    m_context->UpdateSubresource(m_constantBuffer, 0, nullptr, &m_constants, 0, 0);
-
-    // --- NEW: RESET PARTICLES TO FIX "STATIC" BUG ---
-    // Generate a fresh batch of particles to scatter the old formations
-    std::vector<Particle> particles(m_numParticles);
-    for (auto &p : particles)
-    {
-        p.pos = {(rand() % 200 - 100) / 100.0f, (rand() % 200 - 100) / 100.0f}; // Random position
-        p.vel = {0.0f, 0.0f};                                                   // Reset momentum
-
-        // CRITICAL: Force the particle type to be within the new universe bounds
-        p.type = rand() % newNumTypes;
-    }
-
-    // Upload the fresh particles to the GPU, overwriting the frozen ones
-    m_context->UpdateSubresource(m_particleBuffer, 0, nullptr, particles.data(), 0, 0);
-    // ------------------------------------------------
 }

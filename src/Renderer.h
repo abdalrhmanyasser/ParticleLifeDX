@@ -20,12 +20,20 @@ struct Constants
     float dt;
     float friction;
 
-    // --- NEW: Mouse Interaction Variables ---
     DirectX::XMFLOAT2 mousePos;
-    float mouseForce;      // Positive = Attract, Negative = Repulse, 0 = Off
-    float mouseRadius;     // How far the mouse force reaches
-    DirectX::XMFLOAT2 pad; // Padding to maintain 16-byte alignment
-    // ----------------------------------------
+    float mouseForce;
+    float mouseRadius;
+
+    DirectX::XMFLOAT2 pan;
+    float zoom;
+
+    // --- NEW: Map Size ---
+    float worldSize;
+
+    // CHANGED: Shrunk padding from 3 floats to 2 floats (8 bytes)
+    // zoom(4) + worldSize(4) + pad2(8) = exactly 16 bytes!
+    float pad2[2];
+    // ---------------------
 
     DirectX::XMFLOAT4 typeColors[16];
 };
@@ -37,17 +45,15 @@ public:
 
     void InitParticles(uint32_t count);
     void RandomizeRules(uint32_t newNumTypes);
+    void RebuildParticles(uint32_t newCount); // NEW
     void UpdateAndRender();
-
-    void Resize(UINT width, UINT height); // NEW
+    void Resize(UINT width, UINT height);
 
 private:
-    int m_targetTypes = 6;
-    float m_mouseStrength = 5.0f;
-    float m_mouseRadius = 0.4f;
     HWND m_hwnd;
-    UINT m_width = 800;  // NEW
-    UINT m_height = 600; // NEW
+    UINT m_width = 800;
+    UINT m_height = 600;
+    float m_worldSize = 2.0f; // Default map size
     ID3D11Device *m_device;
     ID3D11DeviceContext *m_context;
     IDXGISwapChain *m_swapChain;
@@ -71,4 +77,13 @@ private:
     ID3D11PixelShader *m_matrixPS;
 
     uint32_t m_numParticles;
+    int m_targetTypes = 6;
+    int m_targetParticles = 15000; // NEW
+
+    float m_mouseStrength = 5.0f;
+    float m_mouseRadius = 0.4f;
+
+    // NEW: Camera State
+    DirectX::XMFLOAT2 m_pan = {0.0f, 0.0f};
+    float m_zoom = 1.0f;
 };

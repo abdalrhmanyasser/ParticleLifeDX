@@ -7,7 +7,6 @@ struct Particle {
 
 StructuredBuffer<Particle> Particles : register(t0);
 
-// NEW: Receive the Constants from C++ (Now with matching memory alignment!)
 cbuffer Constants : register(b0) {
     uint numParticles;
     uint numTypes;
@@ -16,14 +15,18 @@ cbuffer Constants : register(b0) {
     float dt;
     float friction;
     
-    // The missing mouse variables that caused the overlap!
     float2 mousePos;
     float mouseForce;
     float mouseRadius;
-    float2 pad;
+    
+    float2 pan;
+    float zoom;
+    float worldSize;
+    float2 pad2;
     
     float4 typeColors[16]; 
 };
+
 struct VS_INPUT {
     uint vertexID : SV_VertexID;
     uint instanceID : SV_InstanceID;
@@ -44,11 +47,11 @@ PS_INPUT main(VS_INPUT input) {
     };
     
     float2 localPos = quadCoords[input.vertexID];
-    float2 worldPos = (localPos * 0.005) + p.pos; 
+    
+    float2 particleCenter = (p.pos * zoom) + pan;
+    float2 worldPos = (localPos * 0.005 * zoom) + particleCenter; 
     
     output.pos = float4(worldPos, 0.0, 1.0);
-    
-    // Read the exact color from our C++ constant buffer
     output.color = typeColors[p.type].rgb; 
     
     return output;
