@@ -2,6 +2,8 @@
 
 A highly performant, real-time "Particle Life" simulation running entirely on the GPU. Built natively for Windows using C++ and DirectX 11. It features emergent cellular/flocking behaviors, real-time dynamic rule mutation, mouse interaction, and a Dear ImGui control panel.
 
+![Particle Life Simulation Demo](demo.mp4) 
+
 ### 🤖 AI Authorship Acknowledgment
 The architectural design, DirectX 11 pipeline, HLSL shader programming, and C++ implementations in this repository were collaboratively generated with the assistance of an AI (Google Gemini). 
 
@@ -94,3 +96,8 @@ ParticleLife.exe
 * **Left Mouse Button (Hold):** Create a green gravity well to attract nearby particles.
 * **Right Mouse Button (Hold):** Create a red repulsive field to blast particles apart.
 * **Colors:** Use the color pickers in the UI to change the visual representation of any particle type.
+
+---
+
+## 📜 License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

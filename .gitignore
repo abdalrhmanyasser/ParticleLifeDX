@@ -20,3 +20,4 @@ imgui*.zip
 
 # Ignore specific build artifacts from the cl.exe compiler
 *.idb
+imgui.ini
