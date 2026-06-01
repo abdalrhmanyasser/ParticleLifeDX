@@ -54,6 +54,7 @@ Renderer::Renderer(HWND hwnd) : m_hwnd(hwnd), m_ruleBuffer(nullptr), m_ruleSRV(n
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr; // Disables imgui.ini generation completely
     (void)io;
     ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(m_hwnd);
@@ -261,6 +262,7 @@ void Renderer::UpdateAndRender()
     ImGui::NewFrame();
 
     ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr; // Disables imgui.ini generation completely
     float sidebarWidth = 300.0f;
     float simWidth = (float)m_width - sidebarWidth;
     if (simWidth < 100.0f)

@@ -2,7 +2,7 @@
 
 A highly performant, real-time "Particle Life" simulation running entirely on the GPU. Built natively for Windows using C++ and DirectX 11. It features emergent cellular/flocking behaviors, real-time dynamic rule mutation, mouse interaction, and a Dear ImGui control panel.
 
-![Particle Life Simulation Demo](demo.mp4) 
+![Particle Life Simulation Demo](demo.gif) 
 
 ### 🤖 AI Authorship Acknowledgment
 The architectural design, DirectX 11 pipeline, HLSL shader programming, and C++ implementations in this repository were collaboratively generated with the assistance of an AI (Google Gemini). 
