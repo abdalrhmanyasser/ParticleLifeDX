@@ -1,0 +1,22 @@
+# Prerequisites
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+*.obj
+*.pdb
+*.ilk
+
+# Visual Studio cache/options directory
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# ImGui Download Zip (if you leave it in the folder)
+imgui*.zip
+
+# Ignore specific build artifacts from the cl.exe compiler
+*.idb
